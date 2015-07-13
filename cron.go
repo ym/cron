@@ -4,6 +4,7 @@ package cron
 
 import (
 	"sort"
+	"strconv"
 	"time"
 )
 
@@ -32,6 +33,9 @@ type Schedule interface {
 
 // Entry consists of a schedule and the func to execute on that schedule.
 type Entry struct {
+	// Id of the job
+	Id string
+
 	// The schedule on which this job should be run.
 	Schedule Schedule
 
@@ -82,33 +86,48 @@ type FuncJob func()
 
 func (f FuncJob) Run() { f() }
 
+// A helper that generated ID
+func (c *Cron) getId(ids []string) string {
+	if len(ids) == 0 {
+		return strconv.FormatInt(time.Now().UnixNano(), 10)
+	} else {
+		return ids[0]
+	}
+}
+
 // AddFunc adds a func to the Cron to be run on the given schedule.
-func (c *Cron) AddFunc(spec string, cmd func()) error {
-	return c.AddJob(spec, FuncJob(cmd))
+func (c *Cron) AddFunc(spec string, cmd func(), ids ...string) (string, error) {
+	id := c.getId(ids)
+	return c.AddJob(spec, FuncJob(cmd), id)
 }
 
 // AddFunc adds a Job to the Cron to be run on the given schedule.
-func (c *Cron) AddJob(spec string, cmd Job) error {
+func (c *Cron) AddJob(spec string, cmd Job, ids ...string) (string, error) {
+	id := c.getId(ids)
+
 	schedule, err := Parse(spec)
 	if err != nil {
-		return err
+		return "", err
 	}
-	c.Schedule(schedule, cmd)
-	return nil
+	return c.Schedule(schedule, cmd, id), nil
 }
 
 // Schedule adds a Job to the Cron to be run on the given schedule.
-func (c *Cron) Schedule(schedule Schedule, cmd Job) {
+func (c *Cron) Schedule(schedule Schedule, cmd Job, ids ...string) string {
+	id := c.getId(ids)
+
 	entry := &Entry{
+		Id:       id,
 		Schedule: schedule,
 		Job:      cmd,
 	}
 	if !c.running {
 		c.entries = append(c.entries, entry)
-		return
+		return id
 	}
 
 	c.add <- entry
+	return id
 }
 
 // Entries returns a snapshot of the cron entries.
@@ -189,6 +208,7 @@ func (c *Cron) entrySnapshot() []*Entry {
 	entries := []*Entry{}
 	for _, e := range c.entries {
 		entries = append(entries, &Entry{
+			Id:       e.Id,
 			Schedule: e.Schedule,
 			Next:     e.Next,
 			Prev:     e.Prev,
